@@ -1,6 +1,31 @@
 classdef SLAM < handle
-    %UNTITLED Summary of this class goes here
-    %   Detailed explanation goes here
+    %Objects of the slam class are responsible for running a single
+    %instance of a SLAM algorithm. 
+    %   This class will create an object of the appropriate SLAM agorithm
+    %   as specified by the input string in the default constructor. The
+    %   runSlam function can then be used to repeatedly call the predict
+    %   and measurment functions of the appropriate SLAM algorithm. 
+    %
+    %   The LM variable is used to store the algorithm sepcific landmark
+    %   object.
+    %
+    %   The slam variable is used to store the algorithm specific SLAM
+    %   algorithm
+    %
+    %   The algorithName variable is used to store the name of the algorithm
+    %   which is set when an object of this class is created. The
+    %   algorithmName is also used to select each appropriate method to be
+    %   called in the predict and measure functions
+    %
+    %   The laser variable stores laser scan data recieved from the kinect
+    %   sensor
+    %
+    %   The odom variable stores odometry data recieved from the turtle bot.
+    %
+    %   The u vairable is used to store the control vector (change in linear
+    %   displacement and rotation) of the turtlebot
+    %
+    %   oldOdomPose is used to keep track of the previous odom pose
     
     properties
         LM; 
@@ -12,13 +37,18 @@ classdef SLAM < handle
         u;
         oldOdomPose;
         
-        
+        chatpub
+        msg
+        map
     end
     
     methods
         
         % Constructor - initialize state variables and covariances
         function h = SLAM(inputString)
+            
+
+            
             h.algorithmName = inputString;
             h.laser = rossubscriber('/scan');      %initialize a subscriber node to kinect laser scan data
             h.odom = rossubscriber('/odom');
@@ -37,8 +67,16 @@ classdef SLAM < handle
                 otherwise
                     
             end
+            
+            h.map=robotics.BinaryOccupancyGrid(200,200,5);
+            h.chatpub = rospublisher('/map','nav_msgs/OccupancyGrid');
+            %  h.chatpub = rospublisher('/chatter','std_msgs/String');
+            h.msg = rosmessage(h.chatpub);
+            
+            h.msg.Header.FrameId = 'map';
         end
         
+        % Function - 
         function predict(h,u)
             switch(h.algorithmName)
                 case 'EKF_SLAM'
@@ -72,7 +110,7 @@ classdef SLAM < handle
             %======================================================================
             laserData  = receive(h.laser); %recieve a laser scan
             odomData = receive(h.odom);
-
+           
             % End receive ROS topics
             %----------------------------------------------------------------------
             
@@ -120,8 +158,7 @@ classdef SLAM < handle
             rot = [cosd(h.slam.x(3)) -sind(h.slam.x(3)) h.slam.x(1)+12.5; sind(h.slam.x(3)) cosd(h.slam.x(3)) h.slam.x(2)+12.5; 0 0 1];
             world_frame_laser_scan = rot*[cartes_data,ones(length(cartes_data),1)]';
             
-            %setOccupancy(map, world_frame_laser_scan(1:2,:)',1);
-            %show(map);
+
             
             
             
@@ -136,10 +173,22 @@ classdef SLAM < handle
             
             
             %Plot slam data (landmarks, observed landmarks, root)
-            h.slam.plot(h.LM);
+%             figure(1);
+%             h.slam.plot(h.LM);
             
             
+            %Plot map
+            world_frame_scan(1,:)=world_frame_laser_scan(1,:)+20;
+            world_frame_scan(2,:)=world_frame_laser_scan(2,:)+20;
             
+            figure(2);
+            setOccupancy(h.map, world_frame_scan(1:2,:)',1);
+            show(h.map);
+         %   h.msg.Data='SAM';
+           send(h.chatpub,h.msg);
+           writeBinaryOccupancyGrid(h.msg,h.map);
+           
+             send(h.chatpub,h.msg);
             
         end
     end

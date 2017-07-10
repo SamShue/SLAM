@@ -4,6 +4,7 @@ classdef test_slam_class
     properties
         laser
         odom
+        map
     end
     
     methods
@@ -11,7 +12,7 @@ classdef test_slam_class
 
             h.laser = rossubscriber('/scan');      %initialize a subscriber node to kinect laser scan data
             h.odom = rossubscriber('/odom');
-            
+            h.map=robotics.BinaryOccupanceyGrid(25,25,5);
 
         end
         
@@ -71,13 +72,7 @@ classdef test_slam_class
             
             rot = [cosd(h.s.slam.x(3)) -sind(h.s.slam.x(3)) h.s.slam.x(1)+12.5; sind(h.s.slam.x(3)) cosd(h.s.slam.x(3)) h.s.slam.x(2)+12.5; 0 0 1];
             world_frame_laser_scan = rot*[cartes_data,ones(length(cartes_data),1)]';
-            
-            %setOccupancy(map, world_frame_laser_scan(1:2,:)',1);
-            %show(map);
-            
-            
-            
-            
+           
             %Plot scan data
             
             cartes_data = readCartesian(laserData); %read cartesian co-ordinates
@@ -88,7 +83,11 @@ classdef test_slam_class
             
             
             %Plot slam data (landmarks, observed landmarks, root)
+            figure(1);
             h.s.plot();
+            
+            %Plot map data
+
             
             
             
