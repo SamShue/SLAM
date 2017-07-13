@@ -44,15 +44,23 @@ classdef SLAM < handle
     
     methods
         
+        
+                
         % Constructor - initialize state variables and covariances
         function h = SLAM(inputString)
             
 
             
             h.algorithmName = inputString;
-            h.laser = rossubscriber('/scan');      %initialize a subscriber node to kinect laser scan data
+            
+            %initialize a subscriber node to kinect laser scan data
+            h.laser = rossubscriber('/scan'); 
+            
+            %initialize a subscriber node to turtlebot odometry data
             h.odom = rossubscriber('/odom');
             
+            %Switch case based on the algorithm name that creates objects
+            %for the SLAM algorithm and landmark type 
             switch(h.algorithmName)
                 case 'EKF_SLAM'
                     h.slam = EKF_SLAM();
@@ -68,6 +76,8 @@ classdef SLAM < handle
                     
             end
             
+            
+            %Occupancy grid initalisation 
             h.map=robotics.BinaryOccupancyGrid(200,200,5);
             h.chatpub = rospublisher('/map','nav_msgs/OccupancyGrid');
             %  h.chatpub = rospublisher('/chatter','std_msgs/String');
@@ -76,7 +86,12 @@ classdef SLAM < handle
             h.msg.Header.FrameId = 'map';
         end
         
-        % Function - 
+            
+               
+                
+        
+        % Function - calls the predict function of the appropriate slam
+        % algorithm 
         function predict(h,u)
             switch(h.algorithmName)
                 case 'EKF_SLAM'
@@ -87,6 +102,8 @@ classdef SLAM < handle
             end
         end
         
+        % Function - calls the measure function of the appropriate slam
+        % algorithm 
         function measure(h,laserdata,u)
             switch(h.algorithmName)
                 case 'EKF_SLAM'
@@ -96,6 +113,8 @@ classdef SLAM < handle
             end   
         end
         
+        % Function - calls the plot function of the appropriate slam
+        % algorithm 
         function plot(h)
             switch(h.algorithmName)
                 case 'EKF_SLAM'
@@ -105,6 +124,8 @@ classdef SLAM < handle
             end
         end
         
+        %Function - use to run one iteration of the appropriate SLAM
+        %algorithm
         function runSlam(h)
             % Receive ROS Topics
             %======================================================================
@@ -188,6 +209,22 @@ classdef SLAM < handle
            send(h.chatpub,h.msg);
            writeBinaryOccupancyGrid(h.msg,h.map);
            
+         
+           tfpub = rospublisher('/tf', 'tf2_msgs/TFMessage');   
+           tfStampedMsg = rosmessage('geometry_msgs/TransformStamped');
+           tfStampedMsg.ChildFrameId = 'map';
+           tfStampedMsg.Header.FrameId = 'base_link';
+            if robotics.ros.internal.Global.isNodeActive
+                tfStampedMsg.Header.Stamp = rostime('now');
+            end
+            tfStampedMsg.Transform.Translation.X = h.slam.x(1);
+            tfStampedMsg.Transform.Translation.Y = h.slam.x(2);
+            tfStampedMsg.Transform.Translation.Z = 0;
+            tfStampedMsg.Transform.Rotation.W = quat.W;
+            tfStampedMsg.Transform.Rotation.X = quat.X;
+            tfStampedMsg.Transform.Rotation.Y = quat.Y;
+            tfStampedMsg.Transform.Rotation.Z = quat.Z;
+            send(tfpub, tfStampedMsg)
              send(h.chatpub,h.msg);
             
         end

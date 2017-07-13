@@ -5,7 +5,7 @@ close all;                          %close all figures
 rosshutdown                         %close current ros incase it is already initalized
 
 % Robot network variables
-ipaddress = 'http://192.168.1.16:11311';         %define ipadress of turtlebot
+ipaddress = 'http://192.168.1.13:11311';         %define ipadress of turtlebot
 %setenv('ROS_MASTER_URI', ipaddress);
 %rosinit(ipaddress,'NodeHost','192.168.1.133')                  %initate ros using turtlebot IP
 rosinit('192.168.1.13');
