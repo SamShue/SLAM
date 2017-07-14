@@ -40,6 +40,7 @@ classdef SLAM < handle
         chatpub
         msg
         map
+        tftree
     end
     
     methods
@@ -50,6 +51,8 @@ classdef SLAM < handle
         function h = SLAM(inputString)
             
 
+            h.tftree=rostf;
+            
             
             h.algorithmName = inputString;
             
@@ -194,8 +197,8 @@ classdef SLAM < handle
             
             
             %Plot slam data (landmarks, observed landmarks, root)
-%             figure(1);
-%             h.slam.plot(h.LM);
+             figure(1);
+            % h.slam.plot(h.LM);
             
             
             %Plot map
@@ -209,24 +212,33 @@ classdef SLAM < handle
            send(h.chatpub,h.msg);
            writeBinaryOccupancyGrid(h.msg,h.map);
            
-         
+            
            tfpub = rospublisher('/tf', 'tf2_msgs/TFMessage');   
            tfStampedMsg = rosmessage('geometry_msgs/TransformStamped');
-           tfStampedMsg.ChildFrameId = 'map';
-           tfStampedMsg.Header.FrameId = 'base_link';
+           tfStampedMsg.ChildFrameId = 'odom';
+           tfStampedMsg.Header.FrameId = 'map';
             if robotics.ros.internal.Global.isNodeActive
                 tfStampedMsg.Header.Stamp = rostime('now');
             end
-            tfStampedMsg.Transform.Translation.X = h.slam.x(1);
-            tfStampedMsg.Transform.Translation.Y = h.slam.x(2);
+            tfStampedMsg.Transform.Translation.X = h.slam.x(2)+20;
+            tfStampedMsg.Transform.Translation.Y = h.slam.x(1)+20;
             tfStampedMsg.Transform.Translation.Z = 0;
             tfStampedMsg.Transform.Rotation.W = quat.W;
             tfStampedMsg.Transform.Rotation.X = quat.X;
             tfStampedMsg.Transform.Rotation.Y = quat.Y;
             tfStampedMsg.Transform.Rotation.Z = quat.Z;
-            send(tfpub, tfStampedMsg)
+
+
+
+% tform = rosmessage('geometry_msgs/TransformStamped')
+% tform.ChildFrameId = 'new_frame';
+% tform.Header.FrameId = 'base_link';
+% tform.Transform.Translation.X = 0.5;
+% tform.Transform.Rotation.Z = 0.75;
+
+             sendTransform(h.tftree, tfStampedMsg);
              send(h.chatpub,h.msg);
-            
+           
         end
     end
 end
