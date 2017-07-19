@@ -21,7 +21,6 @@ classdef Landmark < handle
             end
         end
         
-        
         function [observed_LL] = getLandmark(h, laserdata, x)
             switch(h.method)
                 case 'RANSAC'
@@ -29,7 +28,10 @@ classdef Landmark < handle
                 otherwise
                     warning('Improper landmark recognition method.');   
             end
-            
+        end
+        
+        function plot(h)
+            h.landmarkObj.plot();
         end
         
     end

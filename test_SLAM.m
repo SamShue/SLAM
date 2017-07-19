@@ -5,13 +5,13 @@ close all;                          %close all figures
 rosshutdown                         %close current ros incase it is already initalized
 
 % Robot network variables
-ipaddress = 'http://192.168.1.13:11311';         %define ipadress of turtlebot
+%ipaddress = 'http://192.168.1.13:11311';         %define ipadress of turtlebot
 %setenv('ROS_MASTER_URI', ipaddress);
 %rosinit(ipaddress,'NodeHost','192.168.1.133')                  %initate ros using turtlebot IP
-rosinit('192.168.1.13');
+rosinit('192.168.1.16');
 
 
-s=SLAM('EKF_SLAM_UC');
+s=SLAM('EKF_SLAM');
 
 while(1)
     s.runSlam();

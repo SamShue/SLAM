@@ -1,7 +1,11 @@
 classdef RANSAC < handle
     properties
         landmark;  % RANSAC landmark storage struct
-        observed;  % used to plot observed landmarks
+        
+        % Used for plotting:
+        observed;
+        pose;
+        scan;
     end
     methods
         function h = RANSAC()
@@ -12,10 +16,16 @@ classdef RANSAC < handle
         end
         
         function [ observed_LL ] = getLandmark(h, laserdata, pose)
-            % NOTE: pose is now the entire state vector
-            % Update landmark structre from state vector
-            if(~isempty(h.landmark))
-                h.updateLandmarkList(pose);
+            % If pose contains more than 3 elements (x,y,theta for 2-D 
+            % SLAM), then assume this is the EKF SLAM method and the rest
+            % of the state vector elements contain x,y landmark positions.
+            % Otherwise, use averaged landmark positions
+            if(length(pose) > 3)
+                % NOTE: pose is now the entire state vector
+                % Update landmark structure from state vector
+                if(~isempty(h.landmark))
+                    h.updateLandmarkList(pose);
+                end
             end
             input_landmark_list = h.landmark;
 
@@ -105,7 +115,7 @@ classdef RANSAC < handle
             worldFrameCartesCords=worldFrameCartesCords';
             worldFrameCartesCords(:,3)=[];
             
-            
+            h.scan = worldFrameCartesCords';
             counter=0;
             potentialLineList=[];
             
@@ -148,7 +158,10 @@ classdef RANSAC < handle
             end
             h.landmark = output_landmark_list;
             
-            
+            % Store variables for plotting
+            h.observed = observed_LL;
+            h.pose = pose(1:3);
+
         end
         
         function pointsWithinDeg = findPoints(h, worldFrameCartesCords,numberOfPointsWithinDegrees,degrees)
@@ -373,8 +386,11 @@ classdef RANSAC < handle
         end
         
         
-        function plot(h,x,observed)
+        function plot(h)
             % Plot "unofficial"/pre-filtered landmarks
+            
+            hold on;
+            
             temp=[h.landmark(:).index];
             idx = find(temp(:) == 0);
             temp=[];
@@ -386,21 +402,25 @@ classdef RANSAC < handle
             end
             
             % Plot range and orientation of observed landmarks
-            if(~isempty(observed))
+            if(~isempty(h.observed))
                 % Plot observed landmark locations
-                for ii = 1:size(observed,1)
+                for ii = 1:size(h.observed,1)
                     temp = [h.landmark(:).index];
-                    idx2 = find(temp(:)==observed(ii,3));  % Landmark of correspondence idx
+                    idx2 = find(temp(:)==h.observed(ii,3));  % Landmark of correspondence idx
                     scatter(h.landmark(idx2).loc(1),h.landmark(idx2).loc(2),'o','b');
                     % Plot observed landmark distances and orientations
-                    lineptsx = x(1) + observed(:,1).*cosd(observed(:,2) + x(3));
-                    lineptsy = x(2) + observed(:,1).*sind(observed(:,2) + x(3));
+                    lineptsx = h.pose(1) + h.observed(:,1).*cosd(h.observed(:,2) + h.pose(3));
+                    lineptsy = h.pose(2) + h.observed(:,1).*sind(h.observed(:,2) + h.pose(3));
                     for jj = 1:length(lineptsx)
-                        plot([x(1) lineptsx(jj)],[x(2) lineptsy(jj)],'red');
+                        plot([h.pose(1) lineptsx(jj)],[h.pose(2) lineptsy(jj)],'red');
                     end
                 end
             end
             
+            % Plot laser scan data
+            scatter(h.scan(1,:),h.scan(2,:),'magenta','.');
+            
+            hold off;
         end
         
     end

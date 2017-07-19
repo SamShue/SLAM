@@ -7,31 +7,40 @@ classdef EKF_SLAM_UC < handle
         P;  % Covariance matrix
         Q;  % Process noise covariance matrix
         s;  % Landmark signature vector
+        u;  % Control vector
         
         % EKF Parameter Values
         C = 0.2;    % Process Noise Constant
-        Rc = [.1,5];   % Measurement Noise Constants
-
-        
+        Rc = [0.1,5];   % Measurement Noise Constants
         correspondence=Correspondence(.00000000001,1000000000,'EKF_SLAM_UC');
         
-        
-        
-        
-        landmark_list;
-        observed
+        LM;
+        observed;
+
+        controlSub;
+        measurementSub;
     end
     
     methods
         % Constructor - initialize state variables and covariances
-        function h = EKF_SLAM_UC()
+        function h = EKF_SLAM_UC(contTopic, measTopic, landmarkMethod)
             % State Vector
             h.x = [0,0,0];
             % Covariance Matrix
             h.P = eye(length(h.x)).*0.1;
             h.P(1,1) = 0.1; h.P(2,2) = 0.1; h.P(3,3) = 0.1;
+            % Initial control vector
+            h.u=[0;0;0];
+            % Cretae landmark recognition object (e.g., 'RANSAC')
+            h.LM = Landmark(landmarkMethod);
             
+            %initialize a subscriber node to kinect laser scan data
+            % Example: '/scan' for laser scan data
+            h.laser = rossubscriber(measTopic); 
             
+            %initialize a subscriber node to turtlebot odometry data
+            % Example: '/odom' for odometry data
+            h.odom = rossubscriber(contTopic);
             
         end
         
@@ -110,7 +119,7 @@ classdef EKF_SLAM_UC < handle
                     R = zeros(2,2); R(1,1) = observed_LL(ii,1)*h.Rc(1); R(2,2) = observed_LL(ii,2)*h.Rc(2);
                     %check if state has no landmarks
                     if(length(h.x)<4)
-                        h.append(u,R,landmark_list.landmarkObj.landmark(find([landmark_list.landmarkObj.landmark.index])).loc,1);
+                        h.append(h.u,R,landmark_list.landmarkObj.landmark(find([landmark_list.landmarkObj.landmark.index])).loc,1);
                     else
                         %estimate correspondence
                         
@@ -120,7 +129,7 @@ classdef EKF_SLAM_UC < handle
                         
                         if(new_LM)
                             %append new landmark
-                            h.append(u,R,landmark_list.landmarkObj.landmark(find([landmark_list.landmarkObj.landmark.index]==idx)).loc,idx);
+                            h.append(h.u,R,landmark_list.landmarkObj.landmark(find([landmark_list.landmarkObj.landmark.index]==idx)).loc,idx);
                         else
                             mu = h.x(1:2)' + z(1)*[cosd(z(2) + h.x(3));sind(z(2) + h.x(3))];
                             mu_k = [h.x(4+(idx-1)*2);h.x(4+(idx-1)*2+1)];
@@ -151,6 +160,65 @@ classdef EKF_SLAM_UC < handle
             end
         end
         
+        function run(h)
+            % Receive ROS Topics
+            %======================================================================
+            laserData  = receive(h.laser); %recieve a laser scan
+            odomData = receive(h.odom);
+           
+            % End receive ROS topics
+            %----------------------------------------------------------------------
+            
+            % Calculate Odometry
+            %======================================================================
+            % odometry data calculated here is the dead-reckoned position from
+            % odometry readings in ROS.
+            
+            p = odomData.Pose.Pose;
+            x_o = p.Position.X;
+            y_o = p.Position.Y;
+            
+            quat = p.Orientation;
+            angles = quat2eul([quat.W quat.X quat.Y quat.Z]);
+            theta = wrapTo360(rad2deg(angles(1)));
+            
+            % store current position in terms of x, y, theta (degrees) as ROS sees
+            odomPose = [x_o,y_o,theta];
+            % End calculate odometery
+            %----------------------------------------------------------------------
+
+            % Estimate Robot's pose
+            %======================================================================
+            % Initialize variables if first iteration
+            if(isempty(h.oldOdomPose))
+                h.oldOdomPose=odomPose;
+            end
+            % Get control vector (change in linear displacement and rotation)to
+            % estimate current pose of the robot
+            delta_D = sqrt((odomPose(1) - h.oldOdomPose(1))^2 + (odomPose(2) - h.oldOdomPose(2))^2);
+            delta_Theta = rad2deg(angdiff(deg2rad(h.oldOdomPose(3)),deg2rad(odomPose(3))));
+            h.u = [delta_D, delta_Theta];
+            
+            % Update position estimate
+            h.predict(h.u);
+            
+            % Record current odometry pose for next iteration
+            h.oldOdomPose = odomPose;
+            
+            h.measure(laserData);
+            
+            cartes_data = readCartesian(laserData); %read cartesian co-ordinates
+            
+            rot = [cosd(h.slam.x(3)) -sind(h.slam.x(3)) h.slam.x(1)+12.5; sind(h.slam.x(3)) cosd(h.slam.x(3)) h.slam.x(2)+12.5; 0 0 1];
+            world_frame_laser_scan = rot*[cartes_data,ones(length(cartes_data),1)]';
+            
+            %Plot scan data
+            cartes_data = readCartesian(laserData); %read cartesian co-ordinates
+            rot = [cosd(h.slam.x(3)) -sind(h.slam.x(3)) h.slam.x(1); sind(h.slam.x(3)) cosd(h.slam.x(3)) h.slam.x(2); 0 0 1];
+            tmp = rot*[cartes_data,ones(length(cartes_data),1)]';
+            scatter(tmp(1,:),tmp(2,:),'magenta','.');
+            axis([-3.5 3.5 -3.5 3.5]);
+        end
         
         function plot(h,landmark_list)
 
