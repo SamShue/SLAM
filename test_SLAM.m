@@ -1,21 +1,29 @@
+% 
+% clc;                                %clear command window
+% clear all;
+% close all;                          %close all figures
+% rosshutdown                         %close current ros incase it is already initalized
+% 
+% % Robot network variables
+% ipaddress = 'http://192.168.1.16:11311';         %define ipadress of turtlebot
+% %setenv('ROS_MASTER_URI', ipaddress);
+% %rosinit(ipaddress,'NodeHost','192.168.1.133')                  %initate ros using turtlebot IP
+% rosinit('192.168.1.16');
+clc;
 
-clc;                                %clear command window
-clear all;
-close all;                          %close all figures
-rosshutdown                         %close current ros incase it is already initalized
+u=[1;90;...
+   1;-90;...
+  -1;90;...
+  -1;-90];
 
-% Robot network variables
-ipaddress = 'http://192.168.1.13:11311';         %define ipadress of turtlebot
-%setenv('ROS_MASTER_URI', ipaddress);
-%rosinit(ipaddress,'NodeHost','192.168.1.133')                  %initate ros using turtlebot IP
-rosinit('192.168.1.13');
+c={[],[1],[1,2],[2]};
+z={[],[10,10],[10,10,20,20],[20,20]};
+
+s=GRAPH_SLAM();
 
 
-s=SLAM('EKF_SLAM_UC');
+s.runSlam(u,z,c);
 
-while(1)
-    s.runSlam();
-end
 
 
 

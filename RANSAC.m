@@ -372,6 +372,15 @@ classdef RANSAC < handle
             end
         end
         
+        %function to return the x,y values of a stored landmark.
+        function landmark=findLandmark(indexSearch)
+            for ii=1:length(h.landmark)
+                if(h.landmark(ii).index==indexSearch)
+                    landmark=h.landmark(ii).pos;
+                    break;
+                end
+            end
+        end
         
         function plot(h,x,observed)
             % Plot "unofficial"/pre-filtered landmarks
