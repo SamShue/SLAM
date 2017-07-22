@@ -165,11 +165,13 @@ classdef GRAPH_SLAM < handle
                 
                 %add to omega at xt and x_t-1
                 a=[-G';eye(3)]*h.R^-1*[G,eye(3)];
-                h.omega(currentInfoStart:currentInfoStart+5,currentInfoStart:currentInfoStart+5)=a+h.omega(currentInfoStart:currentInfoStart+5,currentInfoStart:currentInfoStart+5); 
+                h.omega(currentInfoStart:currentInfoStart+5,currentInfoStart:currentInfoStart+5)...
+                    =a+h.omega(currentInfoStart:currentInfoStart+5,currentInfoStart:currentInfoStart+5); 
                 
                 %add to xi
                 b=[-G;eye(3)]*h.R^-1*[x_t-G*h.mu(previousPoseIdx:previousPoseIdx+2)];
-                h.xi(currentInfoStart:currentInfoStart+5)=b+ h.xi(currentInfoStart:currentInfoStart+5); 
+                h.xi(currentInfoStart:currentInfoStart+5)=...
+                    b+ h.xi(currentInfoStart:currentInfoStart+5); 
                 
             end
             
@@ -201,13 +203,40 @@ classdef GRAPH_SLAM < handle
                         H=1/q*[-sqrt(q)*delta(1), -sqrt(q)*delta(2), 0, sqrt(q)*delta(1), sqrt(q)*delta(2), 0;
                                    delta(2),          -delta(1),   -q,     -delta(2),        delta(1),     0;
                                       0,                   0,       0,         0,               0,         q];
+                        
                                   
+                        currentInfoPos=(3*(measurmentIdx-1))+1;
+                        currentInfoLM=(3*h.numPoses)+1+((c{measurmentIdx}(observationIdx)-1)*3);
+                        
+                        
                         a= H'*h.Q^-1*H;
                         %add to omega at xt and mj
+                        
+                        %add 1:3,1:3
+                        h.omega(currentInfoPos:currentInfoPos+2,currentInfoPos:currentInfoPos+2)...
+                            =a(1:3,1:3)+h.omega(currentInfoPos:currentInfoPos+2,currentInfoPos:currentInfoPos+2);
+                        
+                        %add 4:6,4:6
+                        h.omega(currentInfoLM:currentInfoLM+2,currentInfoLM:currentInfoLM+2)=...
+                            a(4:6,4:6)+h.omega(currentInfoLM:currentInfoLM+2,currentInfoLM:currentInfoLM+2);
+                        
+                        %add 1:3,4:6
+                        h.omega(currentInfoPos:currentInfoPos+2,currentInfoLM:currentInfoLM+2)...
+                            =a(1:3,4:6)+h.omega(currentInfoPos:currentInfoPos+2,currentInfoLM:currentInfoLM+2);
+                        
+                        %add 4:6,1:3
+                        h.omega(currentInfoLM:currentInfoLM+2,currentInfoPos:currentInfoPos+2)...
+                            =a(4:6,1:3)+h.omega(currentInfoLM:currentInfoLM+2,currentInfoPos:currentInfoPos+2);
                         
 
                         b=H'*h.Q^-1*[z{measurmentIdx}(observationIdx)-z_hat+H*[h.mu(poseIdx);h.mu(poseIdx+1);h.mu(poseIdx+2);h.mu(j);h.mu(j+1);h.mu(j+2)]];
                         %add to xi at xt and mj
+                        
+                        h.xi(currentInfoPos:currentInfoPos+2)...
+                            =b(1:3)+h.xi(currentInfoPos:currentInfoPos+2);
+                        
+                        h.xi(currentInfoLM:currentInfoLM+2)...
+                            =b(4:6)+h.xi(currentInfoLM:currentInfoLM+2);
                     end
                     
                 end
