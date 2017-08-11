@@ -33,7 +33,16 @@ classdef GRAPH_SLAM < handle
         omega;  % information matrix
         xi;     % information vector
         
+        omegaReduced;
+        xiReduced;
         
+        contSub;
+        measSub;
+        
+        contData;
+        measData;
+        
+        LM
         
         Q=[.1 0 0;
             0 .1 0;
@@ -44,44 +53,132 @@ classdef GRAPH_SLAM < handle
         Rc = [.01,5];   % Measurement Noise Constants
         
         R=[.1,0,0;0,.1,0;0,0,.1];
+        
+        oldOdomPose;
+        
+        time
     end
     
     methods
         % Constructor - initialize 
-        function h = GRAPH_SLAM()
+        function h = GRAPH_SLAM(contTopic,measTopic,landmarkMethod)
+            
             h.mu=[0;0;0];
+            
+            h.LM = Landmark(landmarkMethod);
+            
+            h.u=[];
+            h.z={};
+            h.c={};
+            %initialize a subscriber node to turtlebot odometry data
+            % Example: '/odom' for odometry data
+            h.contSub = rossubscriber(contTopic);
+            
+            %initialize a subscriber node to kinect laser scan data
+            % Example: '/scan' for laser scan data
+            h.measSub = rossubscriber('/scan');
+            
+            %Test data
+            h.time=0;
         end
         
-        %add variable input information HERE
-        function runGraphSlam(h,u,z,c)
+        %Collect control and measurment data
+        function run(h)
+            h.measData = receive(h.measSub);
+            h.contData = receive(h.contSub);
+            
+            p = h.contData.Pose.Pose;
+            x_o = p.Position.X;
+            y_o = p.Position.Y;
+            
+            quat = p.Orientation;
+            angles = quat2eul([quat.W quat.X quat.Y quat.Z]);
+            theta = wrapTo360(rad2deg(angles(1)));
+            
+            % store current position in terms of x, y, theta (degrees) as ROS sees
+            odomPose = [x_o,y_o,theta];
+            % End calculate odometery
+            %----------------------------------------------------------------------
+
+            % Estimate Robot's pose
+            %======================================================================
+            % Initialize variables if first iteration
+            if(isempty(h.oldOdomPose))
+                h.oldOdomPose=odomPose;
+            end
+            % Get control vector (change in linear displacement and rotation)to
+            % estimate current pose of the robot
+            delta_D = sqrt((odomPose(1) - h.oldOdomPose(1))^2 + (odomPose(2) - h.oldOdomPose(2))^2);
+            delta_Theta = rad2deg(angdiff(deg2rad(h.oldOdomPose(3)),deg2rad(odomPose(3))));
+            h.u =[h.u;[delta_D; delta_Theta]];
+                
+            h.oldOdomPose=odomPose;
+            
+            h.mu=h.mu;odomPose(1);odomPose(2);odomPose(3);
+            
+            [observed_LL] = h.LM.getLandmark(h.measData,odomPose);
+            temp=[];
+            temp2=[];
+            if(isempty(observed_LL)==0)
+                for ii=1:size(observed_LL,1)
+                    temp=[temp,observed_LL(ii,1),observed_LL(ii,2)];
+                    temp2=[temp2,observed_LL(ii,3)];
+                end
+                
+                h.z(size(h.z,2)+1)={temp};
+                h.c(size(h.c,2)+1)={temp2};
+            else
+                h.z(size(h.z,2)+1)={[]};
+                h.c(size(h.c,2)+1)={[]};
+            end
+            
+            h.time=h.time+1;
+            if(mod(h.time,10)==0)
+                h.getSolution();
+            end
+        end
+        
+        
+        %Variables used: control vector, measurment cell array,
+        %correspondence cell array
+        function getSolution(h)
 
             %determine number of poses and number of measurments and create
             %an information matrix and vector of the appropriate size
            
-            h.numPoses=(length(u)/2)+1;
-            h.numLandmarks=max([c{:}]);
-            
-            h.omega=zeros((h.numPoses*3+h.numLandmarks*3));
+            h.numPoses=(length(h.u)/2)+1;
+            if(any(~cellfun(@isempty,h.c))) %cellfun returns a vector of 1s
+                                            %and 0s where a 1 indicates a 
+                                            %empty position in the cell
+                                            %array h.c
+                                            
+                h.numLandmarks=max([h.c{:}]);
+            else
+                h.numLandmarks=0;
+            end
+            h.omega=zeros(h.numPoses*3+h.numLandmarks*3);
             h.xi=zeros(h.numPoses*3+h.numLandmarks*3,1);
             
             
-            h.initalize(u,c);
+            h.initalize();
 
-            %linearize
-            h.linearize(u,z,c);
             
-            %reduce
-            %h.reduce
-            
-            %solve
-            h.solve(h.omegaReduced,h.xiReduced,c);
-           
+            for holder=1:5
+                %linearize
+                h.linearize();
+                
+                %reduce
+                h.reduce
+                
+                %solve
+                h.solve();
+            end
             
         end
         
         
         
-        function initalize(h,u,c)
+        function initalize(h)
             % Use all control vectors to calculate an mean estimate of the
             % pose. c is only used to extract landmarks from ransac
             
@@ -91,7 +188,7 @@ classdef GRAPH_SLAM < handle
             %and the change in theta (delta_D, delta_theta). The total
             %number of controls will be equal to the size of the control
             %vector divided by two. 
-            for idx = 1: length(u)/2
+            for idx = 1: length(h.u)/2
                 
                 %Index for keeping track of the current pose being
                 %calculated
@@ -105,27 +202,25 @@ classdef GRAPH_SLAM < handle
                 
                 %Calculate pose x,y, and theta based on previous pose and
                 %control vector
-                h.mu(poseIdx)= h.mu(previousPoseIdx) + u(controlVecIdx)*cosd(h.mu(previousPoseIdx+2)+u(controlVecIdx+1));
-                h.mu(poseIdx+1)= h.mu(previousPoseIdx+1) + u(controlVecIdx)*sind(h.mu(previousPoseIdx+2)+u(controlVecIdx+1));
-                h.mu(poseIdx+2)= h.mu(previousPoseIdx+2)+u(controlVecIdx+1);
+                h.mu(poseIdx)= h.mu(previousPoseIdx) + h.u(controlVecIdx)*cosd(h.mu(previousPoseIdx+2)+h.u(controlVecIdx+1));
+                h.mu(poseIdx+1)= h.mu(previousPoseIdx+1) + h.u(controlVecIdx)*sind(h.mu(previousPoseIdx+2)+h.u(controlVecIdx+1));
+                h.mu(poseIdx+2)= h.mu(previousPoseIdx+2)+h.u(controlVecIdx+1);
                 
             end
             
             %add intal landmark map positions to mu. 
             
             %ADD CODE TO EXTRACT LIST OF LANDMARKS FROM HERE
-            landmarkIdxs=unique(cell2mat(c),'first');
+            landmarkIdxs=unique(cell2mat(h.c),'first');
             
             for idx=1:length(landmarkIdxs)
                
                 %FIX THIS BY FILLING IN CORRECT NAMES
-%                 landmark=landmarkObj.findLandmark(idx);
-%                 h.mu(h.numPoses*3+(2*(1-idx))+1)=landmark(1);
-%                 h.mu(h.numPoses*3+(2*(1-idx))+2)=landmark(2);
-%                 h.mu(h.numPoses*3+(2*(1-idx))+3)=idx;
-                  h.mu((h.numPoses*3)+(3*(idx-1))+1)=10;
-                  h.mu((h.numPoses*3)+(3*(idx-1))+2)=10;
-                  h.mu((h.numPoses*3)+(3*(idx-1))+3)=1;
+                landmark=h.LM.findLandmark(idx);
+                h.mu(h.numPoses*3+(2*(1-idx))+1)=landmark(1);
+                h.mu(h.numPoses*3+(2*(1-idx))+2)=landmark(2);
+                h.mu(h.numPoses*3+(2*(1-idx))+3)=idx;
+
             end
             
             
@@ -151,7 +246,7 @@ classdef GRAPH_SLAM < handle
         
         %note to self j will be the index of the landmark plus the size of
         %the number of poses. 
-        function linearize(h,u,z,c) 
+        function linearize(h) 
             
             h.omega(1:3,1:3)=[inf,0,0;0,inf,0;0,0,inf];
             
@@ -159,7 +254,7 @@ classdef GRAPH_SLAM < handle
             %idx also represents the current time iteration,ie t=1,2,...,N,
             %not including t=0;
             %consider changing name of measurmentIDX
-            for measurmentIdx = 1: length(u)/2
+            for measurmentIdx = 1: length(h.u)/2
 
                 %Index for keeping track of the previous pose from mu
                 previousPoseIdx=3*(measurmentIdx-1)+1;
@@ -168,13 +263,13 @@ classdef GRAPH_SLAM < handle
                 controlVecIdx=2*(measurmentIdx-1)+1;
                 
                 x_t=[0;0;0];
-                x_t(1)= h.mu(previousPoseIdx) + u(controlVecIdx)*cosd(h.mu(previousPoseIdx+2)+u(controlVecIdx+1));
-                x_t(2)= h.mu(previousPoseIdx+1) + u(controlVecIdx)*sind(h.mu(previousPoseIdx+2)+u(controlVecIdx+1));
-                x_t(3)= h.mu(previousPoseIdx+2) + u(controlVecIdx+1);
+                x_t(1)= h.mu(previousPoseIdx) + h.u(controlVecIdx)*cosd(h.mu(previousPoseIdx+2)+h.u(controlVecIdx+1));
+                x_t(2)= h.mu(previousPoseIdx+1) + h.u(controlVecIdx)*sind(h.mu(previousPoseIdx+2)+h.u(controlVecIdx+1));
+                x_t(3)= h.mu(previousPoseIdx+2) + h.u(controlVecIdx+1);
                 
                 G = eye(3);
-                G(1,3) = -1*u(controlVecIdx)*sind(h.mu(previousPoseIdx+2));
-                G(2,3) = u(controlVecIdx)*cosd(h.mu(previousPoseIdx+2));
+                G(1,3) = -1*h.u(controlVecIdx)*sind(h.mu(previousPoseIdx+2));
+                G(2,3) = h.u(controlVecIdx)*cosd(h.mu(previousPoseIdx+2));
                 
                 
                 
@@ -194,18 +289,18 @@ classdef GRAPH_SLAM < handle
             
             
 
-            for measurmentIdx=1:length(z)
+            for measurmentIdx=1:length(h.z)
                 %Check if this index of the measurment cell array contains
                 %any measurments
-                if (isempty(z{measurmentIdx})==0)
+                if (isempty(h.z{measurmentIdx})==0)
                     %for all measurments at this index of the measurment
                     %cell array
-                    for observationIdx=1:size(z{measurmentIdx},1)
+                    for observationIdx=1:size(h.z{measurmentIdx},1)
                         
                         %j is the index in mu which holds the current
                         %estimate of landmark cs' x position, the y
                         %position is j+1
-                        j=((c{measurmentIdx}(observationIdx)-1)*3) + h.numPoses*3 +1;
+                        j=((h.c{measurmentIdx}(observationIdx)-1)*3) + h.numPoses*3 +1;
 
                         %poseIdx is used to find the start of each pose
                         %within the mu vector
@@ -221,11 +316,12 @@ classdef GRAPH_SLAM < handle
                                    delta(2),          -delta(1),   -q,     -delta(2),        delta(1),     0;
                                       0,                   0,       0,         0,               0,         q];
                         
-                                  
-                        currentInfoPos=(3*(measurmentIdx-1))+1;
-                        currentInfoLM=(3*h.numPoses)+1+((c{measurmentIdx}(observationIdx)-1)*3);
+                        %solved: was indexing one behind the expected
+                        %position
+                        currentInfoPos=(3*(measurmentIdx-1))+1+3;
+                        currentInfoLM=(3*h.numPoses)+1+((h.c{measurmentIdx}(observationIdx)-1)*3);
                         
-                        
+                                    
                         a= H'*h.Q^-1*H;
                         %add to omega at xt and mj
                         
@@ -246,7 +342,7 @@ classdef GRAPH_SLAM < handle
                             =a(4:6,1:3)+h.omega(currentInfoLM:currentInfoLM+2,currentInfoPos:currentInfoPos+2);
                         
 
-                        b=H'*h.Q^-1*[z{measurmentIdx}(observationIdx)-z_hat+H*[h.mu(poseIdx);h.mu(poseIdx+1);h.mu(poseIdx+2);h.mu(j);h.mu(j+1);h.mu(j+2)]];
+                        b=H'*h.Q^-1*[h.z{measurmentIdx}(observationIdx)-z_hat+H*[h.mu(poseIdx);h.mu(poseIdx+1);h.mu(poseIdx+2);h.mu(j);h.mu(j+1);h.mu(j+2)]];
                         %add to xi at xt and mj
                         
                         h.xi(currentInfoPos:currentInfoPos+2)...
@@ -263,27 +359,36 @@ classdef GRAPH_SLAM < handle
         end
         
         
-        %This function follows the algorith GraphSLAM_reduce on page 349 of
-        %the book. The information matrix omega and information vector xi
-        %are used for this function.
         function reduce(h)
-             
+            h.xiReduced=h.xi;
+            h.omegaReduced=h.omega;
+            for  j=0:h.numLandmarks-1
+                h.xiReduced(1:(h.numPoses*3+3*j))=  h.xiReduced(1:(h.numPoses*3+3*j))-((h.omegaReduced(1:(h.numPoses*3+3*j),(h.numPoses*3+3*j):(h.numPoses*3+3*j)+2))     * (h.omegaReduced(h.numPoses*3+3*j:(h.numPoses*3+3*j)+2,h.numPoses*3+j*3:(h.numPoses*3+3*j)+2))^-1*(h.xiReduced(h.numPoses*3+j*3:(h.numPoses*3+j*3)+2)));
+                h.omegaReduced(1:(h.numPoses*3+3*j),1:(h.numPoses*3+3*j))= h.omega((h.numPoses*3+3*j),1:(h.numPoses*3+3*j))-(h.omega(1:(h.numPoses*3+3*j),(h.numPoses*3+3*j):(h.numPoses*3+3*j)+2))* (h.omega(h.numPoses*3+3*j:(h.numPoses*3+3*j)+2,h.numPoses*3+j*3:(h.numPoses*3+3*j)+2))^-1*h.omega(h.numPoses*3+j*3:(h.numPoses*3+j*3)+2,1:h.numPoses*3+j*3);
+                
+                
+            end
+            
+            temp=h.xiReduced( (1:(h.numPoses*3)));
+            h.xiReduced=temp;
+            h.omegaReduced= h.omegaReduced((1:(h.numPoses*3)),(1:(h.numPoses*3)));
+            
         end
         
         %This function will solve the information matrix/vector for a best
         %estimate of the pose and landmark positions.
-        function solve(h,omegaReduced,xiReduced,c)
+        function solve(h)
             
             
-            E=omegaReduced^-1; 
+            E=h.omegaReduced^-1; 
             %CHANGE xiReduced(1:h.numPoses) back to xiReduced AFTER TESTING
-            h.mu(1:h.numPoses)=E*xiReduced; 
+            h.mu(1:h.numPoses*3)=E*h.xiReduced; 
            
             for featureIdx=1:h.numLandmarks
                 %(3x3)(3x1+(3xN)(Nx1) = (3x1)
                 j=((featureIdx-1)*3) + h.numPoses*3 +1;
 
-                T=find([c{:}]==featureIdx);
+                T=find([h.c{:}]==featureIdx);
                 
                 posMatrix=zeros(3,length(T)*3);
                 posVector=zeros(length(T)*3,1);

@@ -32,6 +32,17 @@ classdef Landmark < handle
             
         end
         
+        
+        function [observed_LL] = findLandmark(h,idx)
+            switch(h.method)
+                case 'RANSAC'
+                    observed_LL=h.landmarkObj.findLandmark(idx);
+                otherwise
+                    warning('Improper landmark recognition method.');
+            end
+            
+        end
+        
     end
     
 end
